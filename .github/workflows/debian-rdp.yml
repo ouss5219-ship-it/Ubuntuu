@@ -1,0 +1,55 @@
+name: Debian-XFCE-RDP
+
+on:
+  workflow_dispatch:
+
+jobs:
+    debian-rdp:
+      runs-on: ubuntu-latest
+      timeout-minutes: 3600
+
+      steps:
+        - name: Checkout Code
+          uses: actions/checkout@v4
+
+        - name: Install Tailscale
+          run: |
+            curl -fsSL https://tailscale.com/install.sh | sh
+            sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=debian-rdp-${{ github.run_id }}
+
+        - name: Setup Debian & XFCE with Docker
+          run: |
+            echo "جاري تجهيز بيئة Debian 12 الحديثة مع واجهة XFCE..."
+            sudo apt-get update && sudo apt-get install -y docker.io
+            sudo systemctl start docker
+            
+            # إنشاء حاوية ديبيان بوكرم وتثبيت وتكوين الواجهة وVNC بشكل صحيح
+            sudo docker run -d --name debian-desktop \
+              --privileged \
+              -p 5901:5901 \
+              debian:bookworm \
+              bash -c "apt-get update && apt-get install -y xfce4 xfce4-goodies tightvncserver dbus-x11 wget curl && \
+              mkdir -p ~/.vnc && \
+              echo 'password' | vncpasswd -f > ~/.vnc/passwd && \
+              chmod 600 ~/.vnc/passwd && \
+              echo '#!/bin/bash' > ~/.vnc/xstartup && \
+              echo 'xrdb \$HOME/.Xresources' >> ~/.vnc/xstartup && \
+              echo 'startxfce4 &' >> ~/.vnc/xstartup && \
+              chmod +x ~/.vnc/xstartup && \
+              vncserver :1 -geometry 1280x720 -depth 24 && \
+              tail -f /dev/null"
+
+        - name: Get Tailscale IP & Connection Details
+          run: |
+            TS_IP=$(tailscale ip -4)
+            echo "=== DEBIAN VNC ACCESS ==="
+            echo "Address: $TS_IP:5901"
+            echo "Password: password"
+            echo "========================="
+
+        - name: Maintain Connection
+          run: |
+            while true; do
+                echo "[$(date)] Debian XFCE Active..."
+                sleep 300
+            done
