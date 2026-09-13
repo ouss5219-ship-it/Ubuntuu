@@ -1,55 +1,45 @@
-name: Debian-XFCE-RDP
+      - name: Start Debian 13 XFCE RDP
+        run: |
+          RDP_PASSWORD=$(openssl rand -base64 18 | tr -dc 'A-Za-z0-9' | head -c 16)
 
-on:
-  workflow_dispatch:
+          docker run -d \
+            --name debian-rdp \
+            --restart unless-stopped \
+            -e RDP_PASSWORD="$RDP_PASSWORD" \
+            -p 3389:3389 \
+            debian:13 \
+            bash -c '
+              set -e
+              export DEBIAN_FRONTEND=noninteractive
 
-jobs:
-    debian-rdp:
-      runs-on: ubuntu-latest
-      timeout-minutes: 3600
+              apt-get update
 
-      steps:
-        - name: Checkout Code
-          uses: actions/checkout@v4
+              apt-get install -y \
+                xfce4 \
+                xfce4-goodies \
+                xrdp \
+                xorgxrdp \
+                dbus-x11 \
+                sudo \
+                openssh-client \
+                curl \
+                wget \
+                ca-certificates
 
-        - name: Install Tailscale
-          run: |
-            curl -fsSL https://tailscale.com/install.sh | sh
-            sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=debian-rdp-${{ github.run_id }}
+              useradd -m -s /bin/bash user
+              echo "user:${RDP_PASSWORD}" | chpasswd
+              adduser user sudo
 
-        - name: Setup Debian & XFCE with Docker
-          run: |
-            echo "جاري تجهيز بيئة Debian 12 الحديثة مع واجهة XFCE..."
-            sudo apt-get update && sudo apt-get install -y docker.io
-            sudo systemctl start docker
-            
-            # إنشاء حاوية ديبيان بوكرم وتثبيت وتكوين الواجهة وVNC بشكل صحيح
-            sudo docker run -d --name debian-desktop \
-              --privileged \
-              -p 5901:5901 \
-              debian:bookworm \
-              bash -c "apt-get update && apt-get install -y xfce4 xfce4-goodies tightvncserver dbus-x11 wget curl && \
-              mkdir -p ~/.vnc && \
-              echo 'password' | vncpasswd -f > ~/.vnc/passwd && \
-              chmod 600 ~/.vnc/passwd && \
-              echo '#!/bin/bash' > ~/.vnc/xstartup && \
-              echo 'xrdb \$HOME/.Xresources' >> ~/.vnc/xstartup && \
-              echo 'startxfce4 &' >> ~/.vnc/xstartup && \
-              chmod +x ~/.vnc/xstartup && \
-              vncserver :1 -geometry 1280x720 -depth 24 && \
-              tail -f /dev/null"
+              echo "startxfce4" > /home/user/.xsession
+              chown user:user /home/user/.xsession
 
-        - name: Get Tailscale IP & Connection Details
-          run: |
-            TS_IP=$(tailscale ip -4)
-            echo "=== DEBIAN VNC ACCESS ==="
-            echo "Address: $TS_IP:5901"
-            echo "Password: password"
-            echo "========================="
+              service dbus start
+              service xrdp start
 
-        - name: Maintain Connection
-          run: |
-            while true; do
-                echo "[$(date)] Debian XFCE Active..."
-                sleep 300
-            done
+              tail -f /dev/null
+            '
+
+          echo "======================================"
+          echo "RDP USER: user"
+          echo "RDP PASSWORD: $RDP_PASSWORD"
+          echo "======================================"
